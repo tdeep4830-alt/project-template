@@ -1,0 +1,50 @@
+# CI：每次 push 同 PR 都跑測試同安全掃描。
+# 注意：改呢個檔要有 GitHub token 嘅 workflow 權限；agent 嘅 token 冇，所以只有 Toby 改得。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+      - name: Run tests
+        # exit code 5 = 冇搵到任何 test（新 project 未有 test 時唔當失敗）
+        run: pytest -q || [ $? -eq 5 ]
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependency audit (pip-audit)
+        run: |
+          pip install pip-audit
+          if [ -f requirements.txt ]; then pip-audit -r requirements.txt; fi
+      - name: Python static analysis (bandit)
+        run: |
+          pip install bandit
+          if [ -d src ]; then bandit -r src -ll; fi
